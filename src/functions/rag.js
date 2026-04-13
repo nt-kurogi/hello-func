@@ -10,25 +10,26 @@ function requiredEnv(name) {
   return value;
 }
 
-const config = {
-  backendApiKey: process.env.BACKEND_API_KEY || "",
-  allowedOrigin: process.env.ALLOWED_ORIGIN || "http://localhost:5173",
-  openAiEndpoint: requiredEnv("AZURE_OPENAI_ENDPOINT").replace(/\/$/, ""),
-  openAiApiKey: requiredEnv("AZURE_OPENAI_API_KEY"),
-  openAiDeployment: requiredEnv("AZURE_OPENAI_DEPLOYMENT"),
-  searchEndpoint: requiredEnv("AZURE_SEARCH_ENDPOINT"),
-  searchApiKey: requiredEnv("AZURE_SEARCH_API_KEY"),
-  defaultSearchIndex: process.env.AZURE_SEARCH_INDEX || "",
-};
-
-const searchCredential = new AzureKeyCredential(config.searchApiKey);
+function getConfig() {
+  return {
+    backendApiKey: process.env.BACKEND_API_KEY || "",
+    allowedOrigin: process.env.ALLOWED_ORIGIN || "http://localhost:5173",
+    openAiEndpoint: requiredEnv("AZURE_OPENAI_ENDPOINT").replace(/\/$/, ""),
+    openAiApiKey: requiredEnv("AZURE_OPENAI_API_KEY"),
+    openAiDeployment: requiredEnv("AZURE_OPENAI_DEPLOYMENT"),
+    searchEndpoint: requiredEnv("AZURE_SEARCH_ENDPOINT"),
+    searchApiKey: requiredEnv("AZURE_SEARCH_API_KEY"),
+    defaultSearchIndex: process.env.AZURE_SEARCH_INDEX || "",
+  };
+}
 
 function getCorsHeaders(req) {
+  const allowedOrigin = process.env.ALLOWED_ORIGIN || "http://localhost:5173";
   const origin = req.headers.get("origin") || "";
   const allowOrigin =
-    config.allowedOrigin === "*" || origin === config.allowedOrigin
-      ? origin || config.allowedOrigin
-      : config.allowedOrigin;
+    allowedOrigin === "*" || origin === allowedOrigin
+      ? origin || allowedOrigin
+      : allowedOrigin;
 
   return {
     "Access-Control-Allow-Origin": allowOrigin,
@@ -81,7 +82,8 @@ function toCitation(result, fallbackId) {
   };
 }
 
-async function retrieveContext(query, indexName, topK) {
+async function retrieveContext(config, query, indexName, topK) {
+  const searchCredential = new AzureKeyCredential(config.searchApiKey);
   const client = new SearchClient(config.searchEndpoint, indexName, searchCredential);
   const results = await client.search(query, { top: topK });
 
@@ -129,7 +131,7 @@ function extractResponseText(data) {
   return "No answer returned from model.";
 }
 
-async function generateAnswer(query, context) {
+async function generateAnswer(config, query, context) {
   const url = `${config.openAiEndpoint}/openai/v1/responses`;
   const body = {
     model: config.openAiDeployment,
@@ -167,6 +169,8 @@ app.http("rag-search", {
     }
 
     try {
+      const config = getConfig();
+
       if (config.backendApiKey) {
         const incoming = req.headers.get("api-key") || "";
         if (incoming !== config.backendApiKey) {
@@ -200,8 +204,8 @@ app.http("rag-search", {
         });
       }
 
-      const { citations, context } = await retrieveContext(query, indexName, topK);
-      const answer = await generateAnswer(query, context);
+      const { citations, context } = await retrieveContext(config, query, indexName, topK);
+      const answer = await generateAnswer(config, query, context);
 
       return jsonResponse(req, 200, {
         answer,
